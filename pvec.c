@@ -7,15 +7,21 @@
 
 
 /**
- * These functions are the internal API used to interact with the 
- * vector metadata, and internal bitpartitioned trie.
+ * These functions definitions are for all the internal APIs that are used to
+ * interact with the bit-partitioned trie that backs our PersistentVector.
  */
 PVecNode *pvec_node_new(void);
 PVecNode *pvec_node_copy(PVecNode *node);
 PersistentVector *pvec_copy(PersistentVector *vec);
 PersistentVector *pvec_set(PersistentVector *vec, uint64_t key, void *data, bool insert);
+void pvec_append_tail(PersistentVector *vec);
 
 
+/**
+ * Create a new node that is totally empty. We set all children and elements to
+ * NULL. The NULL is used in order to known when we need to make a new node
+ * during inserts.
+ */
 PVecNode *pvec_node_new(void) {
     PVecNode *new = NULL;
     if((new = malloc(sizeof(PVecNode))) == NULL) {
@@ -30,6 +36,10 @@ pvec_node_new_return:
     return new;
 }
 
+/**
+ * Take a copy of a single node within the trie that backs a Persistent vector.
+ * We copy all pointers to children and elements into the new node.
+ */
 PVecNode *pvec_node_copy(PVecNode *node) {
     PVecNode *new_node = NULL;
     if((new_node = malloc(sizeof(PVecNode))) == NULL) {
@@ -44,6 +54,12 @@ pvec_node_copy_return:
     return new_node;
 }
 
+/**
+ * pvec_copy is used internally to copy the vector metadata, as well as the
+ * head node of the vector during updates and inserts. We don't take a copy of
+ * the tail since we won't know if we need that until we start trying to
+ * update.
+ */
 PersistentVector *pvec_copy(PersistentVector *vec) {
     PersistentVector *copy = NULL;
     // We don't just use pvec_new since we are going to override everything in
@@ -68,6 +84,13 @@ pvec_copy_return:
     return copy;
 }
 
+/**
+ * This function is used to take a tail node and append it to the trie in its
+ * correct location. We do this by traversing the trie down to the location of
+ * the node containing the tail_offset. The tail offset is
+ * vector->length - vector->tail_length. This function also handles root
+ * the creation of a new root node on root overflows.
+ */
 void pvec_append_tail(PersistentVector *vec) {
     uint64_t tail_offset = vec->length - vec->tail_length;
     uint64_t shift = BITS * (vec->depth + 1);
@@ -122,6 +145,11 @@ pvec_append_tail_return:
 }
 
 
+/**
+ * This is the big one, pvec_set is used to add and update items. It does some
+ * simple bounds checking. It also has all the code for putting stuff into the
+ * tail of the vector, or going through the tree to find where stuff is.
+ */
 PersistentVector *pvec_set(PersistentVector *vec, uint64_t key, void *data, bool insert) {
     uint64_t shift = BITS * (vec->depth + 1);
     uint64_t tail_offset = vec->length - vec->tail_length;
@@ -199,6 +227,19 @@ pvec_set_return:
     return copy;
 }
 
+
+/**
+ * The following implementations are a part of the externally available
+ * PersistentVector API. These functions might change, but their api should
+ * stay the same.
+ */
+
+
+/**
+ * Create a new PersistentVector which starts off empty.
+ * This function will malloc the memory needed, and also initialie all the
+ * values to their correct defaults.
+ */
 PersistentVector *pvec_new(void) {
     PersistentVector *vec = NULL;
     if((vec = malloc(sizeof(PersistentVector))) == NULL) {
@@ -226,18 +267,26 @@ pvec_new_return:
 
 
 /**
- * The following implementations are a part of the externally available
- * PersistentVector API
+ * A wrapper function around pvec_set that appends a single value to the end of
+ * the vector.
  */
-
 PersistentVector *pvec_cons(PersistentVector *vec, void *data) {
     return pvec_set(vec, vec->length, data, true);
 }
 
+/**
+ * A Wrapper function around pvec_set that updates the value of an existing
+ * key in a vector
+ */
 PersistentVector *pvec_assoc(PersistentVector *vec, uint64_t key, void *data) {
     return pvec_set(vec, key, data, false);
 }
 
+/**
+ * Retreive a value from the given index in the vector.
+ * This means we either grab it from the tail, or we traverse the backing
+ * trie structure in order to find it.
+ */
 void *pvec_nth(PersistentVector *vec, uint64_t key) {
     uint64_t shift = BITS * (vec->depth + 1);
     PVecNode *next = NULL;
@@ -260,7 +309,14 @@ void *pvec_nth(PersistentVector *vec, uint64_t key) {
 }
 
 /**
- * Test functions
+ * Test functions. The following functions are used in order to test the
+ * functionality of the Persistent Vector implementation.
+ */
+
+
+/**
+ * Turn a Persistent Vector into an array. Useful to verify that all data in
+ * the vector is still accessable after being inserted.
  */
 void **pvec_to_array(PersistentVector *vec) {
     void **array = NULL;
@@ -275,6 +331,9 @@ pvec_to_array_return:
     return array;
 }
 
+/**
+ * Print out the contents of a Persistent Vector
+ */
 void print_pvec(PersistentVector *vec) {
     void **array = pvec_to_array(vec);
     printf("[");

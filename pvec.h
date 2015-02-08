@@ -26,4 +26,5 @@ void pvec_free(PersistentVector *vec);
 PersistentVector *pvec_cons(PersistentVector *vec, void *data);
 PersistentVector *pvec_assoc(PersistentVector *vec, uint64_t key, void *data);
 void *pvec_nth(PersistentVector *vec, uint64_t key);
+PersistentVector *pvec_pop(PersistentVector *vec, uint64_t key);
 #endif
