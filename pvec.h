@@ -15,6 +15,8 @@ typedef struct PVecNode_ PVecNode;
 
 typedef struct{
     PVecNode *head;
+    PVecNode *tail;
+    uint64_t tail_length;
     uint64_t length;
     uint64_t depth;
 } PersistentVector;

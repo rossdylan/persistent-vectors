@@ -46,88 +46,154 @@ pvec_node_copy_return:
 
 PersistentVector *pvec_copy(PersistentVector *vec) {
     PersistentVector *copy = NULL;
+    // We don't just use pvec_new since we are going to override everything in
+    // it anyway.
     if((copy = malloc(sizeof(PersistentVector))) == NULL) {
         perror("malloc");
         goto pvec_copy_return;
     }
     copy->depth = vec->depth;
     copy->length = vec->length;
+    copy->tail_length = vec->tail_length;
     if((copy->head = pvec_node_copy(vec->head)) == NULL) {
         perror("pvec_node_copy");
         free(copy);
         copy = NULL;
         goto pvec_copy_return;
     }
+    // yo, we don't want to copy this automatically
+    // only copy it if we need to
+    copy->tail = vec->tail;
 pvec_copy_return:
     return copy;
 }
 
-PersistentVector *pvec_set(PersistentVector *vec, uint64_t key, void *data, bool insert) {
+void pvec_append_tail(PersistentVector *vec) {
+    uint64_t tail_offset = vec->length - vec->tail_length;
     uint64_t shift = BITS * (vec->depth + 1);
     uint64_t max_size = 1 << (5 * shift); //TODO(rossdylan) This needs to be verified
+
+    // Check for root overflow, and if so expand the trie by 1 level
+    if(vec->length == max_size) {
+        PVecNode *new_root = NULL;
+        if((new_root = pvec_node_new()) == NULL) {
+            perror("pvec_node_new");
+            goto pvec_append_tail_return;
+        }
+        new_root->children[0] = vec->head;
+        vec->head = new_root;
+        vec->depth++;
+        shift = BITS * (vec->depth + 1);
+    }
+
+    PVecNode *cur = NULL;
+    PVecNode *prev = vec->head;
+    uint64_t index = 0;
+    uint64_t key = tail_offset;;
+    for(uint64_t level = shift; level > 0; level -= BITS) {
+        index = (key >> level) & MASK;
+        cur = prev->children[index];
+        // We are at the end of the tree time to insert our tail node
+        if(cur == NULL && level - BITS == 0) {
+            prev->children[index] = vec->tail;
+            break;
+        }
+        // Found a NULL node on our way down to the bottom
+        if(cur == NULL) {
+            if((prev->children[index] = pvec_node_new()) == NULL) {
+                perror("pvec_node_new");
+                //TODO malloc failed somwhere, clean our shit up
+                goto pvec_append_tail_return;
+            }
+            cur = prev->children[index];
+            prev = cur;
+            continue;
+        }
+        prev = cur;
+    }
+    // Make our new tail
+    if((vec->tail = pvec_node_new()) == NULL) {
+        perror("pvec_new_node");
+        goto pvec_append_tail_return;
+    }
+    vec->tail_length = 0;
+pvec_append_tail_return:
+    return;
+}
+
+
+PersistentVector *pvec_set(PersistentVector *vec, uint64_t key, void *data, bool insert) {
+    uint64_t shift = BITS * (vec->depth + 1);
+    uint64_t tail_offset = vec->length - vec->tail_length;
     PersistentVector *copy = NULL;
 
     // Check our bounds for non-insert sets
     if(key > vec->length && !insert) {
         goto pvec_set_return;
     }
-
     // Create a copy of the root node from which we will base our insert/update
     // operations off of
     if((copy = pvec_copy(vec)) == NULL) {
         perror("pvec_copy");
         goto pvec_set_return;
     }
-
-    // Check for root overflow, and if so expand the trie by 1 level
-    if(copy->length == max_size) {
-        PVecNode *new_root = NULL;
-        if((new_root = pvec_node_new()) == NULL) {
-            perror("pvec_node_new");
-            free(copy->head);
-            free(copy);
-            copy = NULL;
-            goto pvec_set_return;
-        }
-        new_root->children[0] = copy->head;
-        copy->head = new_root;
-        copy->depth++;
-        shift = BITS * (vec->depth + 1);
-    }
-
-    // Now that we have dealt with our edgecases and checks do the set
-    // operation.
-    PVecNode *cur = NULL;
-    PVecNode *prev = copy->head;
-    uint64_t index = 0;
-
-    for(uint64_t level = shift; level > 0; level -= BITS) {
-        index = (key >> level) & MASK;
-        cur = prev->children[index];
-        if(cur == NULL) {
-            // We are doing an insert, so we need to make new nodes if we need them
-            if(insert) {
-                if((prev->children[index] = pvec_node_new()) == NULL) {
-                    perror("pvec_node_new");
-                    //TODO malloc failed somwhere, clean our shit up
+    // Is this an update?
+    if(!insert) {
+        // fuck yah it is
+        //is it in the tail?
+        if(key < tail_offset) {
+            // nooooope
+            // we just had to do this the hard way,
+            // lets go find our node in the tree
+            PVecNode *cur = NULL;
+            PVecNode *prev = copy->head;
+            uint64_t index = 0;
+            for(uint64_t level = shift; level > 0; level -= BITS) {
+                index = (key >> level) & MASK;
+                cur = prev->children[index];
+                // We are at the end of the tree time to insert our tail node
+                // Found a NULL node on our way down to the bottom
+                if(cur == NULL) {
+                    // fuck what am I doing here?
+                    // This shoulnd't happen
                     goto pvec_set_return;
                 }
-                cur = prev->children[index];
                 prev = cur;
-                continue;
             }
-            else {
-                // TODO(rossdylan) This is an error path, clean this shit up
-                printf("I reached an error path\n");
+            prev->elements[key & MASK] = data;
+            goto pvec_set_return;
+        }
+        else {
+            // Copy the tail from our original vector
+            if((copy->tail = pvec_node_copy(vec->tail)) == NULL) {
+                perror("pvec_node_copy");
+                free(copy->head);
+                free(copy);
+                copy = NULL;
                 goto pvec_set_return;
             }
+            // If we are just updating we can just change it in the tail
+            copy->tail->elements[key - tail_offset] = data;
+            goto pvec_set_return;
         }
-        prev->children[index] = pvec_node_copy(cur);
-        prev = prev->children[index];
     }
-    prev->elements[key & MASK] = data;
-    if(insert) {
-        copy->length++;
+    else {
+        // Inserting a new item
+        if(copy->tail_length == WIDTH) {
+            // no more space :(
+            pvec_append_tail(copy);
+            tail_offset = copy->length - copy->tail_length;
+            copy->tail->elements[key - tail_offset] = data;
+            copy->length++;
+            copy->tail_length++;
+            goto pvec_set_return;
+        }
+        else {
+            copy->tail->elements[key - tail_offset] = data;
+            copy->length++;
+            copy->tail_length++;
+            goto pvec_set_return;
+        }
     }
 pvec_set_return:
     return copy;
@@ -145,8 +211,15 @@ PersistentVector *pvec_new(void) {
         vec = NULL;
         goto pvec_new_return;
     }
+    if((vec->tail = pvec_node_new()) == NULL) {
+        perror("pvec_node_new");
+        free(vec);
+        vec = NULL;
+        goto pvec_new_return;
+    }
     vec->depth = 0;
     vec->length = 0;
+    vec->tail_length = 0;
 pvec_new_return:
     return vec;
 }
@@ -170,12 +243,20 @@ void *pvec_nth(PersistentVector *vec, uint64_t key) {
     PVecNode *next = NULL;
     PVecNode *prev = vec->head;
     uint64_t index = 0;
-    for(uint64_t level = shift; level > 0; level -= BITS) {
-        index = (key >> level) & MASK;
-        next = prev->children[index];
-        prev = next;
+    uint64_t tail_offset = vec->length - vec->tail_length;
+    void *data = NULL;
+    if(key < tail_offset) {
+        for(uint64_t level = shift; level > 0; level -= BITS) {
+            index = (key >> level) & MASK;
+            next = prev->children[index];
+            prev = next;
+        }
+        data = prev->elements[key & MASK];
     }
-    return prev->elements[key & MASK];
+    else {
+        data = vec->tail->elements[key - tail_offset];
+    }
+    return data;
 }
 
 /**
