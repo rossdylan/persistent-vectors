@@ -219,17 +219,11 @@ PersistentVector *pvec_set(PersistentVector *vec, uint64_t key, void *data, bool
             // no more space :(
             pvec_append_tail(copy);
             tail_offset = copy->length - copy->tail_length;
-            copy->tail->elements[key - tail_offset] = data;
-            copy->length++;
-            copy->tail_length++;
-            goto pvec_set_return;
         }
-        else {
-            copy->tail->elements[key - tail_offset] = data;
-            copy->length++;
-            copy->tail_length++;
-            goto pvec_set_return;
-        }
+        copy->tail->elements[key - tail_offset] = data;
+        copy->length++;
+        copy->tail_length++;
+        goto pvec_set_return;
     }
 pvec_set_return:
     return copy;
@@ -365,5 +359,6 @@ int main(int argc, char **argv) {
 
     for(uint64_t i = 0; i < argc+1; i++) {
         print_pvec(stages[i]);
+        printf("\n==============================\n");
     }
 }
