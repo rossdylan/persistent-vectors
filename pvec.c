@@ -46,9 +46,17 @@ PVecNode *pvec_node_copy(PVecNode *node) {
         perror("malloc");
         goto pvec_node_copy_return;
     }
-    for(uint64_t i = 0; i < WIDTH; i++) {
-        new_node->children[i] = node->children[i];
-        new_node->elements[i] = node->elements[i];
+    if(memcpy(new_node->children, node->children, sizeof(PVecNode*) * WIDTH) == NULL) {
+        perror("memcpy");
+        free(new_node);
+        new_node = NULL;
+        goto pvec_node_copy_return;
+    }
+    if(memcpy(new_node->elements, node->elements, sizeof(void*) * WIDTH) == NULL) {
+        perror("memcpy");
+        free(new_node);
+        new_node = NULL;
+        goto pvec_node_copy_return;
     }
 pvec_node_copy_return:
     return new_node;
