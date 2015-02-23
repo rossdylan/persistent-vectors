@@ -117,10 +117,13 @@ void pvec_append_tail(PersistentVector *vec) {
         shift = BITS * (vec->depth + 1);
     }
 
+    // Set up our trie traversal. We subtract BITS from level each time
+    // in order to get all the way down to the level above where we want to
+    // insert this tail node.
     PVecNode *cur = NULL;
     PVecNode *prev = vec->head;
     uint64_t index = 0;
-    uint64_t key = tail_offset;;
+    uint64_t key = tail_offset;
     for(uint64_t level = shift; level > 0; level -= BITS) {
         index = (key >> level) & MASK;
         cur = prev->children[index];
@@ -347,6 +350,7 @@ void print_pvec(PersistentVector *vec) {
 }
 
 int main(int argc, char **argv) {
+    printf("PVecNode size: %lu\n", sizeof(PVecNode));
     PersistentVector **stages = NULL;
     if((stages = calloc(sizeof(PersistentVector), argc + 1)) == NULL) {
         perror("calloc");
